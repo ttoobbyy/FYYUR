@@ -15,7 +15,7 @@ from forms import *
 from flask_migrate import Migrate
 from sqlalchemy.dialects.postgresql import ARRAY
 from datetime import datetime
-from Models import db, Venue, Artist, Show
+from Moldel import db, Venue, Artist, Show
 #----------------------------------------------------------------------------#
 # App Config.
 #----------------------------------------------------------------------------# 
@@ -67,34 +67,40 @@ def index():
 def venues():
   # TODO: replace with real venues data.
   #       num_upcoming_shows should be aggregated based on number of upcoming shows per venue.
+  all_venues = Venue.query.all()
 
-  venues = Venue.query.all()
+  current_date = datetime.now()
 
-    # Get the state and city and remove duplicates
-  unique_venues = Venue.query.distinct(Venue.city, Venue.state).all()
+  ## where all the data for the venue page will be stored
+  data = []
 
-  data = [] # An array where the data that will be passed to the view is stored
+  unique_cities = {} # an dictionary the stores the cities to avoid querying a duplicate city  
 
-  current_time = datetime.now()
+  # add every cities to the unique_cities dictionary to remove duplicate
+  for location in all_venues:
+    unique_cities[location.city] = location.state
 
-  for unique_venue in unique_venues:
 
-    venue_data = [] # An array that stores all the venues in each city
+  for city, state in unique_cities.items():
 
-    for venue in venues:
+    venues = []
 
-      if unique_venue.city == venue.city:
+    for  venue in all_venues:
 
-        venue_data.append({
-        "id": venue.id,
-        "name": venue.name,
-        "num_upcoming_shows": len([Show.query.filter(Show.start_time > current_time)])
+      if city == venue.city:
+
+        venues.append({
+          "id": venue.id,
+          "name": venue.name,
+          "num_upcoming_shows": Show.query.filter(Show.venue_id == venue.id).filter(current_date > Show.start_time).count()
         })
-    data.append({
-        "city": unique_venue.city,
-        "state": unique_venue.state,
-        "venues": venue_data
-    })
+
+    data.append(({
+      "city": city,
+      "state": state,
+      "venues": venues
+    }))
+    
   return render_template('pages/venues.html', areas=data)
 
 #Show Venue
@@ -113,15 +119,15 @@ def show_venue(venue_id):
   shows = Show.query.filter(Show.venue_id == venue_id)
 
 
-  past_shw = [] # An array that hold all the past shows
-  upcoming_shw = [] # An array that hold all upcoming shows
+  previous_show = [] # An array that hold all the past shows
+  upcoming_show = [] # An array that hold all upcoming shows
 
     # Loop Through every row in the Show Model table
   for show in shows:
         
     if show.start_time > current_time:
     # put the shows that are upcoming to the upcoming_show array
-        upcoming_shw.append({
+        upcoming_show.append({
             "artist_id": show.artist.id,
             "artist_name": show.artist.name,
             "artist_image_link": show.artist.image_link,
@@ -129,7 +135,7 @@ def show_venue(venue_id):
         })
     else:
         # put the show that already took place in the past_shows array
-        past_shw.append({
+        previous_show.append({
             "artist_id": show.artist.id,
             "artist_name": show.artist.name,
             "artist_image_link": show.artist.image_link,
@@ -150,17 +156,43 @@ def show_venue(venue_id):
     "seeking_talent": venues.seeking_talent,
     "seeking_description": venues.seeking_description,
     "image_link": venues.image_link,
-    "past_shows": past_shw,
-    "upcoming_shows": upcoming_shw,
-    "past_shows_count": len(past_shw),
-    "upcoming_shows_count": len(upcoming_shw),
+    "past_shows": previous_show,
+    "upcoming_shows": upcoming_show,
+    "past_shows_count": len(previous_show),
+    "upcoming_shows_count": len(upcoming_show),
     }
 
   return render_template('pages/show_venue.html', venue=data)
 
+
+#Searcvenue
+
+@app.route('/venues/search', methods=['POST'])
+def search_venues():
+  # TODO: implement search on venues with partial string search. Ensure it is case-insensitive.
+  # seach for Hop should return "The Musical Hop".
+  # search for "Music" should return "The Musical Hop" and "Park Square Live Music & Coffee"
+
+  # get the user search query(user input on search bar)
+
+  search_term=request.form.get('search_term', '')
+
+  venue_data = Venue.query.filter(Venue.name.ilike(f'%{search_term}%')).all()
+
+  search_data={
+    "count": len(venue_data),
+    "data": []
+  }
+
+  for venue in venue_data:
+        search_data['data'].append({
+        "id": venue.id,
+        "name": venue.name,
+    })
+
+  return render_template('pages/search_venues.html', results=search_data)
 #  Create Venue
 #  ----------------------------------------------------------------
-
 @app.route('/venues/create', methods=['GET'])
 def create_venue_form():
   form = VenueForm()
@@ -222,9 +254,9 @@ def delete_venue(venue_id):
 @app.route('/artists')
 def artists():
   # TODO: replace with real data returned from querying the database
-  data= Artist.query.all()
+  Artist_data= Artist.query.all()
 
-  return render_template('pages/artists.html', artists=data)
+  return render_template('pages/artists.html', artists=Artist_data)
 
 @app.route('/artists/search', methods=['POST'])
 def search_artists():
@@ -235,18 +267,18 @@ def search_artists():
 
   artists = Artist.query.filter(Artist.name.ilike(f'%{search_term}%')).all()
 
-  response={
+  search_data={
     "count": len(artists),
     "data": []
   }
 
   for artist in artists:
-        response['data'].append({
-        "id": artist.id,
-        "name": artist.name,
+    search_data['data'].append({
+      "id": artist.id,
+      "name": artist.name,
     })
 
-  return render_template('pages/search_artists.html', results=response,)
+  return render_template('pages/search_artists.html', results=search_data,)
 
 #SHOW ARTIST
 @app.route('/artists/<int:artist_id>')
@@ -263,15 +295,15 @@ def show_artist(artist_id):
   artist_shows = Show.query.filter(Show.artist_id == artist_id)
     
 
-  p_shows = [] # An array that hold past_shows
-  u_shows = [] # An array that hold upcoming_shows
+  previous_shows = [] # An array that hold past_shows
+  upcoming_shows = [] # An array that hold upcoming_shows
 
     # loop through all the shows the artist has performed in
   for show in artist_shows:
         
         if show.start_time < current_date:
             # added past shows to p_show list
-            p_shows.append({
+            previous_shows.append({
                 "venue_id": show.id,
                 "venue_name": show.venue.name,
                 "venue_image_link": show.venue.image_link,
@@ -279,7 +311,7 @@ def show_artist(artist_id):
             })
         else:
             # Add upcoming show to u_show list
-            u_shows.append({
+            upcoming_shows.append({
                 "venue_id": show.id,
                 "venue_name": show.venue.name,
                 "venue_image_link": show.venue.image_link,
@@ -298,10 +330,10 @@ def show_artist(artist_id):
     "seeking_venue": artist.seeking_venue,
     "seeking_description": artist.seeking_description,
     "image_link": artist.image_link,
-    "past_shows": p_shows,
-    "upcoming_shows": u_shows,
-    "past_shows_count": len(p_shows),
-    "upcoming_shows_count": len(u_shows),
+    "past_shows": previous_shows,
+    "upcoming_shows": upcoming_shows,
+    "past_shows_count": len(previous_shows),
+    "upcoming_shows_count": len(upcoming_shows),
     }
     
   
